@@ -23,7 +23,15 @@ class MistralClient:
         self.base_url = "https://openrouter.ai/api/v1"
 
         # Проверяем API ключ
-        if not api_key or api_key == "your_openrouter_api_key":
+        # Проверяем на пустой ключ или плейсхолдеры
+        placeholder_keys = [
+            "your_openrouter_api_key",
+            "sk-or-v1-...",
+            "sk-or-v1-",
+            ""
+        ]
+        
+        if not api_key or api_key.strip() in placeholder_keys or len(api_key.strip()) < 10:
             self.logger.warning("API ключ OpenRouter не установлен!")
             self.available = False
         else:

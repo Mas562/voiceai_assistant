@@ -576,6 +576,9 @@ class VoiceAIAssistantApp:
             font=("Arial", 12)
         ).pack(anchor="w", padx=20, pady=(0, 5))
 
+        # Загружаем существующий ключ
+        current_api_key = self._load_current_api_key()
+        
         api_key_entry = ctk.CTkEntry(
             main_frame,
             placeholder_text="sk-or-v1-...",
@@ -583,6 +586,11 @@ class VoiceAIAssistantApp:
             width=400
         )
         api_key_entry.pack(padx=20, pady=(0, 20))
+        
+        # Вставляем текущий ключ, если он есть и не является плейсхолдером
+        placeholder_keys = ["your_openrouter_api_key", "sk-or-v1-...", "sk-or-v1-"]
+        if current_api_key and current_api_key.strip() not in placeholder_keys and len(current_api_key.strip()) >= 10:
+            api_key_entry.insert(0, current_api_key)
 
         # Информация
         info_text = """
@@ -630,13 +638,101 @@ class VoiceAIAssistantApp:
 
     def save_api_key(self, api_key: str, window):
         """Сохранение API ключа"""
-        if not api_key:
+        if not api_key or not api_key.strip():
             messagebox.showwarning("Предупреждение", "Введите API ключ")
             return
 
-        # Здесь должна быть логика сохранения ключа в конфиг
-        messagebox.showinfo("Успех", "API ключ сохранен! Перезапустите приложение.")
-        window.destroy()
+        api_key = api_key.strip()
+        
+        # Проверяем формат ключа
+        if not api_key.startswith("sk-or-v1-"):
+            if not messagebox.askyesno("Предупреждение", 
+                "Ключ не начинается с 'sk-or-v1-'. Это может быть неверный формат.\n"
+                "Продолжить сохранение?"):
+                return
+
+        try:
+            # Загружаем текущий конфиг
+            config_path = "config/settings.json"
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+            else:
+                # Создаем базовый конфиг, если файла нет
+                config = {
+                    "mistral": {
+                        "api_key": "",
+                        "model": "mistralai/mistral-7b-instruct:free",
+                        "max_tokens": 500,
+                        "temperature": 0.7
+                    },
+                    "user": {
+                        "name": "Пользователь",
+                        "location": "Москва",
+                        "interests": ["технологии", "программирование", "музыка", "наука"]
+                    },
+                    "assistant": {
+                        "name": "Алекса",
+                        "voice_gender": "female",
+                        "speech_rate": 170
+                    },
+                    "skills": {
+                        "weather": {
+                            "api_key": "your_openweather_api_key",
+                            "default_city": "Москва"
+                        }
+                    }
+                }
+
+            # Обновляем API ключ
+            if "mistral" not in config:
+                config["mistral"] = {}
+            config["mistral"]["api_key"] = api_key
+
+            # Сохраняем конфиг
+            os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+
+            # Переинициализируем MistralClient в ассистенте
+            if self.assistant:
+                try:
+                    from mistral_client import MistralClient
+                    model = config.get("mistral", {}).get("model", "mistralai/mistral-7b-instruct:free")
+                    self.assistant.mistral_client = MistralClient(api_key, model)
+                    self.assistant.config["mistral"]["api_key"] = api_key
+                    self.logger.info("MistralClient переинициализирован с новым ключом")
+                except Exception as e:
+                    self.logger.error(f"Ошибка переинициализации MistralClient: {e}")
+
+            messagebox.showinfo("Успех", "API ключ успешно сохранен!")
+            window.destroy()
+            
+            # Обновляем статус AI
+            if self.assistant and self.assistant.mistral_client:
+                available = self.assistant.mistral_client.is_available()
+                status_text = "✅ Доступен" if available else "❌ Недоступен"
+                status_color = "#4CAF50" if available else "#F44336"
+                self.ai_status_label.configure(
+                    text=status_text,
+                    text_color=status_color
+                )
+
+        except Exception as e:
+            self.logger.error(f"Ошибка сохранения API ключа: {e}")
+            messagebox.showerror("Ошибка", f"Не удалось сохранить API ключ:\n{str(e)}")
+    
+    def _load_current_api_key(self) -> str:
+        """Загрузка текущего API ключа из конфига"""
+        try:
+            config_path = "config/settings.json"
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    return config.get("mistral", {}).get("api_key", "")
+        except Exception as e:
+            self.logger.error(f"Ошибка загрузки API ключа: {e}")
+        return ""
 
     def open_website(self, url: str):
         """Открыть веб-сайт"""
